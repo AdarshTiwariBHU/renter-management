@@ -28,6 +28,7 @@ import {
   Copy,
   Check,
   Shield,
+  Trash2,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -116,6 +117,36 @@ export default function RenterProfilePage() {
       alert('Error adding meter');
     } finally {
       setAddingMeter(false);
+    }
+  };
+
+  const [deletingRenter, setDeletingRenter] = useState(false);
+
+  const handleDeleteRenter = async () => {
+    if (!renter) return;
+    if (
+      !confirm(
+        `Are you sure you want to permanently delete "${renter.fullName}"? This will delete this vacated renter and all associated records from the system.`
+      )
+    ) {
+      return;
+    }
+    setDeletingRenter(true);
+    try {
+      const res = await fetch(`/api/renters/${renter._id}`, {
+        method: 'DELETE',
+      });
+      const resJson = await res.json();
+      if (resJson.success) {
+        alert(resJson.message || 'Renter deleted successfully');
+        router.push('/renters');
+      } else {
+        alert(resJson.error || 'Failed to delete renter');
+      }
+    } catch {
+      alert('Error deleting renter');
+    } finally {
+      setDeletingRenter(false);
     }
   };
 
@@ -350,12 +381,20 @@ export default function RenterProfilePage() {
               <Edit className="w-4 h-4" /> Edit Profile
             </Link>
 
-            {renter.status === 'ACTIVE' && (
+            {renter.status === 'ACTIVE' ? (
               <button
                 onClick={() => setVacateModalOpen(true)}
                 className="px-3.5 py-2 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl shadow-xs transition flex items-center gap-1.5"
               >
                 <LogOut className="w-4 h-4" /> Vacate Renter
+              </button>
+            ) : (
+              <button
+                onClick={handleDeleteRenter}
+                disabled={deletingRenter}
+                className="px-3.5 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs transition flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4" /> {deletingRenter ? 'Deleting...' : 'Delete Vacated Renter'}
               </button>
             )}
           </div>
@@ -464,6 +503,19 @@ export default function RenterProfilePage() {
                     Notes: {renter.vacatedDetails.settlementNotes}
                   </p>
                 )}
+                <div className="pt-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs text-slate-500">
+                    This renter is vacated. You can permanently delete this record if no longer needed.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleDeleteRenter}
+                    disabled={deletingRenter}
+                    className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 transition disabled:opacity-50"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> {deletingRenter ? 'Deleting...' : 'Delete Vacated Record'}
+                  </button>
+                </div>
               </div>
             )}
 

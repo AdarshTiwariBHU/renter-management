@@ -15,6 +15,7 @@ import {
   RefreshCw,
   MoreVertical,
   SlidersHorizontal,
+  Trash2,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { StatusBadge } from '@/components/ui/StatusBadge';
@@ -61,6 +62,35 @@ function RentersContent() {
   const [quickMeterRenterId, setQuickMeterRenterId] = useState<string | null>(null);
   const [recordPaymentRenterId, setRecordPaymentRenterId] = useState<string | null>(null);
   const [vacateRenter, setVacateRenter] = useState<RenterItem | null>(null);
+  const [deletingRenterId, setDeletingRenterId] = useState<string | null>(null);
+
+  const handleDeleteRenter = async (id: string, name: string) => {
+    if (
+      !confirm(
+        `Are you sure you want to permanently delete "${name}"? This action cannot be undone and will delete all their bills, meter readings, and records.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setDeletingRenterId(id);
+      const res = await fetch(`/api/renters/${id}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        alert(data.error || 'Failed to delete renter');
+        return;
+      }
+      alert('Renter deleted successfully');
+      fetchRenters();
+    } catch {
+      alert('Error deleting renter');
+    } finally {
+      setDeletingRenterId(null);
+    }
+  };
 
   const fetchRenters = async () => {
     try {
@@ -346,9 +376,14 @@ function RentersContent() {
                           </button>
                         </>
                       ) : (
-                        <div className="col-span-2 text-xs text-slate-400 italic flex items-center">
-                          Vacated Tenant
-                        </div>
+                        <button
+                          onClick={() => handleDeleteRenter(renter._id, renter.fullName)}
+                          disabled={deletingRenterId === renter._id}
+                          className="col-span-2 py-2 px-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 font-semibold text-xs flex items-center justify-center gap-1 active:scale-95 transition disabled:opacity-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>{deletingRenterId === renter._id ? 'Deleting...' : 'Delete Vacated'}</span>
+                        </button>
                       )}
                       <Link
                         href={`/renters/${renter._id}`}
@@ -516,14 +551,23 @@ function RentersContent() {
                             <Edit className="w-3.5 h-3.5" />
                           </Link>
 
-                          {/* Mark as Vacated */}
-                          {renter.status === 'ACTIVE' && (
+                          {/* Mark as Vacated or Delete Vacated */}
+                          {renter.status === 'ACTIVE' ? (
                             <button
                               onClick={() => setVacateRenter(renter)}
                               className="p-1.5 rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition"
                               title="Mark as Vacated"
                             >
                               <LogOut className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleDeleteRenter(renter._id, renter.fullName)}
+                              disabled={deletingRenterId === renter._id}
+                              className="p-1.5 rounded-lg hover:bg-rose-50 text-rose-500 hover:text-rose-700 transition disabled:opacity-50"
+                              title="Delete Vacated Renter"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           )}
                         </div>

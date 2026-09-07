@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/db';
 import Renter from '@/models/Renter';
+import User from '@/models/User';
 import Room from '@/models/Room';
 import Meter from '@/models/Meter';
 import MeterReading from '@/models/MeterReading';
@@ -8,7 +9,7 @@ import Bill from '@/models/Bill';
 import Payment from '@/models/Payment';
 import Transaction from '@/models/Transaction';
 import AuditLog from '@/models/AuditLog';
-import { getAuthFromRequest } from '@/lib/auth';
+import { getAuthFromRequest, isAdminRole } from '@/lib/auth';
 
 export async function GET(
   request: NextRequest,
@@ -153,5 +154,86 @@ export async function PUT(
   } catch (error: unknown) {
     console.error('Renter PUT error:', error);
     return NextResponse.json({ success: false, error: 'Failed to update renter' }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const auth = getAuthFromRequest(request);
+    if (!auth || !isAdminRole(auth.role)) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized. Admin access required.' },
+        { status: 403 }
+      );
+    }
+
+    const { id } = params;
+    await connectToDatabase();
+
+    const renter = await Renter.findById(id);
+    if (!renter) {
+      return NextResponse.json({ success: false, error: 'Renter not found' }, { status: 404 });
+    }
+
+    // Release the Room if occupied
+    if (renter.roomId) {
+      await Room.findByIdAndUpdate(renter.roomId, {
+        status: 'VACANT',
+        currentRenterId: null,
+      });
+    }
+
+    // Cascade delete associated records
+    // 1. Delete associated user account(s)
+    await User.deleteMany({
+      $or: [
+        { renterId: renter._id },
+        ...(renter.userId ? [{ _id: renter.userId }] : []),
+        { username: renter.mobile },
+      ],
+    });
+
+    // 2. Delete meters and meter readings
+    await Meter.deleteMany({ renterId: renter._id });
+    await MeterReading.deleteMany({ renterId: renter._id });
+
+    // 3. Delete bills and payments
+    await Bill.deleteMany({ renterId: renter._id });
+    await Payment.deleteMany({ renterId: renter._id });
+
+    // 4. Delete transactions and old audit logs
+    await Transaction.deleteMany({ renterId: renter._id });
+    await AuditLog.deleteMany({ entityId: renter._id.toString() });
+
+    // 5. Delete renter record itself
+    await Renter.findByIdAndDelete(id);
+
+    // 6. Record final audit log
+    await AuditLog.create({
+      action: 'RENTER_DELETED',
+      performedBy: auth.username || 'Admin',
+      entityType: 'Renter',
+      entityId: id,
+      details: {
+        fullName: renter.fullName,
+        roomNumber: renter.roomNumber,
+        mobile: renter.mobile,
+        status: renter.status,
+      },
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: `Renter "${renter.fullName}" and all associated data deleted successfully.`,
+    });
+  } catch (error: unknown) {
+    console.error('Renter DELETE error:', error);
+    return NextResponse.json(
+      { success: false, error: 'Failed to delete renter' },
+      { status: 500 }
+    );
   }
 }
