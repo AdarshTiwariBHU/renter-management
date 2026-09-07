@@ -1,6 +1,8 @@
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
+import { connectToDatabase } from '@/lib/db';
+import UploadedFile from '@/models/UploadedFile';
 
 export interface UploadResult {
   url: string;
@@ -77,18 +79,31 @@ export async function saveFile(
         size: buffer.length,
       };
     }
-    console.warn('Cloudinary upload failed, falling back to local storage');
+    console.warn('Cloudinary upload failed, falling back to database/local storage');
   }
-
-  // Local storage fallback
-  const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
-  await fs.mkdir(uploadsDir, { recursive: true });
 
   const fileExt = ext || (mimeType.includes('pdf') ? '.pdf' : '.jpg');
   const uniqueName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${fileExt}`;
-  const filePath = path.join(uploadsDir, uniqueName);
 
-  await fs.writeFile(filePath, buffer);
+  // Primary persistence: MongoDB Atlas (works seamlessly in serverless / Vercel)
+  await connectToDatabase();
+  await UploadedFile.create({
+    filename: uniqueName,
+    originalName,
+    mimeType: mimeType || 'application/octet-stream',
+    size: buffer.length,
+    data: buffer,
+  });
+
+  // Local storage fallback / cache (best-effort, safe on read-only environments like Vercel)
+  try {
+    const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
+    await fs.mkdir(uploadsDir, { recursive: true });
+    const filePath = path.join(uploadsDir, uniqueName);
+    await fs.writeFile(filePath, buffer);
+  } catch {
+    // Expected on Vercel EROFS read-only environment; MongoDB handles serving
+  }
 
   return {
     url: `/uploads/${uniqueName}`,

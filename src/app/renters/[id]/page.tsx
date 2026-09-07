@@ -81,6 +81,44 @@ export default function RenterProfilePage() {
   const [accountActionLoading, setAccountActionLoading] = useState(false);
   const [copiedLoginId, setCopiedLoginId] = useState(false);
 
+  // Add meter state
+  const [addMeterOpen, setAddMeterOpen] = useState(false);
+  const [newMeterName, setNewMeterName] = useState('');
+  const [newStartingReading, setNewStartingReading] = useState('0');
+  const [newRatePerUnit, setNewRatePerUnit] = useState('10');
+  const [addingMeter, setAddingMeter] = useState(false);
+
+  const handleAddMeterSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMeterName.trim()) return;
+    setAddingMeter(true);
+    try {
+      const res = await fetch('/api/meters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          renterId: renter._id,
+          meterName: newMeterName.trim(),
+          startingReading: Number(newStartingReading) || 0,
+          ratePerUnit: Number(newRatePerUnit) || 10,
+        }),
+      });
+      const resJson = await res.json();
+      if (resJson.success) {
+        setAddMeterOpen(false);
+        setNewMeterName('');
+        setNewStartingReading('0');
+        fetchProfile();
+      } else {
+        alert(resJson.error || 'Failed to add meter');
+      }
+    } catch {
+      alert('Error adding meter');
+    } finally {
+      setAddingMeter(false);
+    }
+  };
+
   const fetchProfile = async () => {
     try {
       setLoading(true);
@@ -611,12 +649,20 @@ export default function RenterProfilePage() {
                   Assigned Electricity Meters ({meters.length})
                 </h2>
                 {renter.status === 'ACTIVE' && (
-                  <button
-                    onClick={() => setQuickMeterOpen(true)}
-                    className="text-xs font-semibold text-blue-600 hover:text-blue-700"
-                  >
-                    + Enter Reading
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setAddMeterOpen(true)}
+                      className="text-xs font-semibold px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition flex items-center gap-1"
+                    >
+                      + Add Meter
+                    </button>
+                    <button
+                      onClick={() => setQuickMeterOpen(true)}
+                      className="text-xs font-semibold px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl transition flex items-center gap-1"
+                    >
+                      ⚡ Record Reading
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -975,6 +1021,88 @@ export default function RenterProfilePage() {
           </div>
         )}
       </div>
+
+      {/* Add Meter Modal */}
+      {addMeterOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl border border-slate-100 animate-in fade-in">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-amber-50 text-amber-600 rounded-xl">
+                  <Zap className="w-5 h-5 fill-amber-500" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base">Add New Meter</h3>
+                  <p className="text-xs text-slate-500">Assign an electricity meter to {renter.fullName}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setAddMeterOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleAddMeterSubmit} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Meter Name *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. AC Meter, Personal Meter, Kitchen"
+                  value={newMeterName}
+                  onChange={(e) => setNewMeterName(e.target.value)}
+                  className="w-full text-xs p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-500"
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Starting Units</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={newStartingReading}
+                    onChange={(e) => setNewStartingReading(e.target.value)}
+                    className="w-full text-xs p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Rate / Unit (₹)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={newRatePerUnit}
+                    onChange={(e) => setNewRatePerUnit(e.target.value)}
+                    className="w-full text-xs p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-blue-500"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setAddMeterOpen(false)}
+                  className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={addingMeter || !newMeterName.trim()}
+                  className="px-4 py-2 font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition disabled:opacity-50"
+                >
+                  {addingMeter ? 'Adding...' : 'Add Meter'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Global Modals */}
       <QuickMeterModal

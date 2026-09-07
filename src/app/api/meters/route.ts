@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import { connectToDatabase } from '@/lib/db';
 import Meter from '@/models/Meter';
 import Renter from '@/models/Renter';
+import Property from '@/models/Property';
+import Room from '@/models/Room';
 import { getAuthFromRequest } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -9,14 +12,31 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
   try {
     await connectToDatabase();
+    // Ensure referenced schemas are registered for populate
+    void Property;
+    void Room;
+    void Renter;
+
     const { searchParams } = new URL(request.url);
     const renterId = searchParams.get('renterId');
     const propertyId = searchParams.get('propertyId');
     const activeOnly = searchParams.get('activeOnly') !== 'false';
 
     const filter: Record<string, unknown> = {};
-    if (renterId) filter.renterId = renterId;
-    if (propertyId && propertyId !== 'ALL') filter.propertyId = propertyId;
+    if (renterId) {
+      if (mongoose.Types.ObjectId.isValid(renterId)) {
+        filter.renterId = new mongoose.Types.ObjectId(renterId);
+      } else {
+        filter.renterId = renterId;
+      }
+    }
+    if (propertyId && propertyId !== 'ALL') {
+      if (mongoose.Types.ObjectId.isValid(propertyId)) {
+        filter.propertyId = new mongoose.Types.ObjectId(propertyId);
+      } else {
+        filter.propertyId = propertyId;
+      }
+    }
     if (activeOnly) filter.isActive = true;
 
     const meters = await Meter.find(filter)

@@ -52,35 +52,56 @@ export const QuickMeterModal: React.FC<QuickMeterModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Load active renters
+  // Load active renters when modal opens
   useEffect(() => {
     if (!isOpen) return;
+
+    setError(null);
+    setSuccessMessage(null);
+    setCurrentReading('');
+    setIsRevision(false);
+    setRevisionReason('');
+    setNotes('');
+
+    if (preselectedRenterId) {
+      setSelectedRenterId(preselectedRenterId);
+    }
+
     setLoadingRenters(true);
     fetch('/api/renters?status=ACTIVE')
       .then((res) => res.json())
       .then((data) => {
-        if (data.success) {
+        if (data.success && Array.isArray(data.data)) {
           setRenters(data.data);
-          if (!selectedRenterId && data.data.length > 0) {
-            setSelectedRenterId(preselectedRenterId || data.data[0]._id);
+          if (preselectedRenterId) {
+            setSelectedRenterId(preselectedRenterId);
+          } else if (data.data.length > 0) {
+            setSelectedRenterId((prev) => {
+              const stillExists = data.data.some((r: RenterOption) => r._id === prev);
+              return stillExists && prev ? prev : data.data[0]._id;
+            });
           }
         }
       })
+      .catch((err) => {
+        console.error('Failed to load renters:', err);
+      })
       .finally(() => setLoadingRenters(false));
-  }, [isOpen, preselectedRenterId, selectedRenterId]);
+  }, [isOpen, preselectedRenterId]);
 
-  // Load meters when renter changes
+  // Load meters whenever selectedRenterId changes or modal opens
   useEffect(() => {
-    if (!selectedRenterId) {
+    if (!isOpen || !selectedRenterId) {
       setMeters([]);
       setSelectedMeterId('');
       return;
     }
+
     setLoadingMeters(true);
     fetch(`/api/meters?renterId=${selectedRenterId}&activeOnly=true`)
       .then((res) => res.json())
       .then((data) => {
-        if (data.success) {
+        if (data.success && Array.isArray(data.data)) {
           setMeters(data.data);
           if (preselectedMeterId && data.data.some((m: MeterItem) => m._id === preselectedMeterId)) {
             setSelectedMeterId(preselectedMeterId);
@@ -89,10 +110,18 @@ export const QuickMeterModal: React.FC<QuickMeterModalProps> = ({
           } else {
             setSelectedMeterId('');
           }
+        } else {
+          setMeters([]);
+          setSelectedMeterId('');
         }
       })
+      .catch((err) => {
+        console.error('Failed to load meters:', err);
+        setMeters([]);
+        setSelectedMeterId('');
+      })
       .finally(() => setLoadingMeters(false));
-  }, [selectedRenterId, preselectedMeterId]);
+  }, [isOpen, selectedRenterId, preselectedMeterId]);
 
   const activeMeter = meters.find((m) => m._id === selectedMeterId);
   const selectedRenter = renters.find((r) => r._id === selectedRenterId);
@@ -229,11 +258,15 @@ export const QuickMeterModal: React.FC<QuickMeterModalProps> = ({
                 disabled={loadingRenters}
                 className="w-full text-sm rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 focus:bg-white focus:border-blue-500 focus:outline-none transition font-medium text-slate-800"
               >
-                {renters.map((r) => (
-                  <option key={r._id} value={r._id}>
-                    {r.fullName} (Rm {r.roomNumber})
-                  </option>
-                ))}
+                {renters.length === 0 ? (
+                  <option value="">No active renters</option>
+                ) : (
+                  renters.map((r) => (
+                    <option key={r._id} value={r._id}>
+                      {r.fullName} (Rm {r.roomNumber})
+                    </option>
+                  ))
+                )}
               </select>
             </div>
 
