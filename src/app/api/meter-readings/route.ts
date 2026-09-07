@@ -19,12 +19,20 @@ export async function GET(request: NextRequest) {
     const meterId = searchParams.get('meterId');
     const propertyId = searchParams.get('propertyId');
     const sort = searchParams.get('sort') || 'newest';
+    const status = searchParams.get('status');
 
     const filter: Record<string, unknown> = {};
     if (month && month !== 'ALL') filter.billingMonth = month;
     if (renterId) filter.renterId = renterId;
     if (meterId) filter.meterId = meterId;
     if (propertyId && propertyId !== 'ALL') filter.propertyId = propertyId;
+
+    // Filter by status: default to APPROVED so REJECTED and PENDING readings do not contaminate billing/totals
+    if (status && status !== 'ALL') {
+      filter.status = status;
+    } else if (!status) {
+      filter.status = 'APPROVED';
+    }
 
     let sortOption: Record<string, 1 | -1> = { readingDate: -1 };
     if (sort === 'consumption_desc') sortOption = { unitsConsumed: -1 };
@@ -200,10 +208,11 @@ export async function POST(request: NextRequest) {
     }
 
     // --- Synchronize with current month's Bill ---
-    // 1. Gather all meter readings for this renter in this billing month
+    // 1. Gather all approved meter readings for this renter in this billing month
     const allMonthReadings = await MeterReading.find({
       renterId: renter._id,
       billingMonth,
+      status: 'APPROVED',
     });
 
     const totalElectricityAmount = allMonthReadings.reduce(
@@ -288,5 +297,94 @@ export async function POST(request: NextRequest) {
     console.error('Meter reading POST error:', error);
     const msg = error instanceof Error ? error.message : 'Failed to save meter reading';
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const auth = getAuthFromRequest(request);
+    if (!auth) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    if (!id) {
+      return NextResponse.json({ success: false, error: 'Reading ID is required' }, { status: 400 });
+    }
+
+    await connectToDatabase();
+    const reading = await MeterReading.findById(id);
+    if (!reading) {
+      return NextResponse.json({ success: false, error: 'Reading not found' }, { status: 404 });
+    }
+
+    await MeterReading.findByIdAndDelete(id);
+
+    // Resync bill if an approved reading was deleted
+    if (reading.status === 'APPROVED') {
+      const allMonthReadings = await MeterReading.find({
+        renterId: reading.renterId,
+        billingMonth: reading.billingMonth,
+        status: 'APPROVED',
+      });
+
+      const totalElectricityAmount = allMonthReadings.reduce(
+        (sum, r) => sum + (r.electricityAmount || 0),
+        0
+      );
+
+      const meterBreakdown = allMonthReadings.map((r) => ({
+        meterId: r.meterId,
+        meterName: r.meterName,
+        previousReading: r.previousReading,
+        currentReading: r.currentReading,
+        unitsConsumed: r.unitsConsumed,
+        ratePerUnit: r.ratePerUnit,
+        amount: r.electricityAmount,
+      }));
+
+      const bill = await Bill.findOne({
+        renterId: reading.renterId,
+        billingMonth: reading.billingMonth,
+      });
+
+      if (bill) {
+        bill.electricityAmount = totalElectricityAmount;
+        bill.meterBreakdown = meterBreakdown;
+        const billCalc = calculateBill(
+          bill.rentAmount,
+          bill.electricityAmount,
+          bill.otherCharges,
+          bill.previousDue,
+          bill.paidAmount,
+          bill.dueDate
+        );
+        bill.totalPayable = billCalc.totalPayable;
+        bill.balance = billCalc.balance;
+        bill.status = billCalc.status;
+        await bill.save();
+      }
+
+      // Also reset meter's currentReading to the latest prior approved reading
+      const meter = await Meter.findById(reading.meterId);
+      if (meter) {
+        const latestApproved = await MeterReading.findOne({
+          meterId: meter._id,
+          status: 'APPROVED',
+        }).sort({ billingMonth: -1 });
+
+        meter.currentReading = latestApproved ? latestApproved.currentReading : meter.startingReading;
+        await meter.save();
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Meter reading deleted successfully',
+    });
+  } catch (error: unknown) {
+    console.error('Meter reading DELETE error:', error);
+    return NextResponse.json({ success: false, error: 'Failed to delete meter reading' }, { status: 500 });
   }
 }

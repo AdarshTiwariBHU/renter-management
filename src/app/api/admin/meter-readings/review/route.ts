@@ -91,6 +91,50 @@ export async function POST(request: NextRequest) {
       reading.rejectionReason = reason;
       await reading.save();
 
+      // Ensure bill has only approved readings
+      const allApprovedMonthReadings = await MeterReading.find({
+        renterId: renter._id,
+        billingMonth: reading.billingMonth,
+        status: 'APPROVED',
+      });
+
+      const totalElectricityAmount = allApprovedMonthReadings.reduce(
+        (sum, r) => sum + (r.electricityAmount || 0),
+        0
+      );
+
+      const meterBreakdown = allApprovedMonthReadings.map((r) => ({
+        meterId: r.meterId,
+        meterName: r.meterName,
+        previousReading: r.previousReading,
+        currentReading: r.currentReading,
+        unitsConsumed: r.unitsConsumed,
+        ratePerUnit: r.ratePerUnit,
+        amount: r.electricityAmount,
+      }));
+
+      const bill = await Bill.findOne({
+        renterId: renter._id,
+        billingMonth: reading.billingMonth,
+      });
+
+      if (bill) {
+        bill.electricityAmount = totalElectricityAmount;
+        bill.meterBreakdown = meterBreakdown;
+        const billCalc = calculateBill(
+          bill.rentAmount,
+          bill.electricityAmount,
+          bill.otherCharges,
+          bill.previousDue,
+          bill.paidAmount,
+          bill.dueDate
+        );
+        bill.totalPayable = billCalc.totalPayable;
+        bill.balance = billCalc.balance;
+        bill.status = billCalc.status;
+        await bill.save();
+      }
+
       await AuditLog.create({
         action: 'METER_READING_REJECTED',
         performedBy: session.auth.username || 'Admin',

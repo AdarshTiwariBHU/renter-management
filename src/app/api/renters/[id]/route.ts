@@ -25,7 +25,7 @@ export async function GET(
 
     const [meters, readings, bills, payments, transactions, auditLogs] = await Promise.all([
       Meter.find({ renterId: id }),
-      MeterReading.find({ renterId: id }).sort({ billingMonth: -1 }),
+      MeterReading.find({ renterId: id, status: 'APPROVED' }).sort({ billingMonth: -1 }),
       Bill.find({ renterId: id }).sort({ billingMonth: -1 }),
       Payment.find({ renterId: id }).sort({ paymentDate: -1 }),
       Transaction.find({ renterId: id }).sort({ date: -1 }),

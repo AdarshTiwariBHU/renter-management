@@ -13,6 +13,7 @@ import {
   Eye,
   AlertCircle,
   Camera,
+  Trash2,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { QuickMeterModal } from '@/components/modals/QuickMeterModal';
@@ -30,6 +31,8 @@ interface ReadingItem {
   ratePerUnit: number;
   electricityAmount: number;
   readingDate: string;
+  status?: string;
+  rejectionReason?: string;
   isRevised?: boolean;
 }
 
@@ -41,6 +44,7 @@ export default function ElectricityPage() {
   // Filters
   const [month, setMonth] = useState('2026-09');
   const [sort, setSort] = useState('newest');
+  const [statusFilter, setStatusFilter] = useState<'APPROVED' | 'REJECTED'>('APPROVED');
 
   // Quick meter modal
   const [quickMeterOpen, setQuickMeterOpen] = useState(false);
@@ -59,6 +63,7 @@ export default function ElectricityPage() {
       const params = new URLSearchParams();
       if (month && month !== 'ALL') params.set('month', month);
       if (sort) params.set('sort', sort);
+      if (statusFilter) params.set('status', statusFilter);
 
       const [res, pendingRes] = await Promise.all([
         fetch(`/api/meter-readings?${params.toString()}`),
@@ -136,9 +141,26 @@ export default function ElectricityPage() {
     }
   };
 
+  const handleDeleteReading = async (readingId: string) => {
+    if (!confirm('Are you sure you want to permanently delete this meter reading?')) return;
+    try {
+      const res = await fetch(`/api/meter-readings?id=${readingId}`, {
+        method: 'DELETE',
+      });
+      const json = await res.json();
+      if (json.success) {
+        fetchReadings();
+      } else {
+        alert(json.error || 'Failed to delete reading');
+      }
+    } catch {
+      alert('Error deleting reading');
+    }
+  };
+
   useEffect(() => {
     fetchReadings();
-  }, [month, sort]);
+  }, [month, sort, statusFilter]);
 
   return (
     <AppLayout>
@@ -330,6 +352,34 @@ export default function ElectricityPage() {
                 All Months
               </button>
             </div>
+
+            {/* Status Tabs: Approved (Default) vs Rejected */}
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setStatusFilter('APPROVED')}
+                className={`px-3 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 ${
+                  statusFilter === 'APPROVED'
+                    ? 'bg-white text-blue-700 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <CheckCircle className="w-3.5 h-3.5" />
+                <span>Active Approved</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('REJECTED')}
+                className={`px-3 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 ${
+                  statusFilter === 'REJECTED'
+                    ? 'bg-white text-rose-700 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <XCircle className="w-3.5 h-3.5 text-rose-500" />
+                <span>Rejected Submissions</span>
+              </button>
+            </div>
           </div>
 
           {/* Sort Selector */}
@@ -438,18 +488,38 @@ export default function ElectricityPage() {
                       </span>
                     </div>
 
-                    <div className="pt-2 border-t border-slate-100">
+                    {r.status === 'REJECTED' && (
+                      <div className="bg-rose-50 border border-rose-200 text-rose-700 p-2.5 rounded-xl text-xs flex items-start gap-2">
+                        <XCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-bold">Rejected by Admin</p>
+                          <p className="text-[11px] mt-0.5">{r.rejectionReason || 'Declined'}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="pt-2 border-t border-slate-100 flex items-center gap-2">
+                      {r.status !== 'REJECTED' && (
+                        <button
+                          onClick={() => {
+                            if (r.renterId?._id) {
+                              setSelectedRenterForModal(r.renterId._id);
+                            }
+                            setQuickMeterOpen(true);
+                          }}
+                          className="flex-1 py-2 px-3 rounded-xl bg-amber-400 hover:bg-amber-500 text-amber-950 font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition active:scale-95"
+                        >
+                          <Zap className="w-3.5 h-3.5 fill-amber-950" />
+                          <span>⚡ Update</span>
+                        </button>
+                      )}
                       <button
-                        onClick={() => {
-                          if (r.renterId?._id) {
-                            setSelectedRenterForModal(r.renterId._id);
-                          }
-                          setQuickMeterOpen(true);
-                        }}
-                        className="w-full py-2 px-3 rounded-xl bg-amber-400 hover:bg-amber-500 text-amber-950 font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition active:scale-95"
+                        onClick={() => handleDeleteReading(r._id)}
+                        className="py-2 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs flex items-center justify-center gap-1 transition"
+                        title="Delete reading"
                       >
-                        <Zap className="w-3.5 h-3.5 fill-amber-950" />
-                        <span>⚡ Update Reading</span>
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete</span>
                       </button>
                     </div>
                   </div>
@@ -470,6 +540,7 @@ export default function ElectricityPage() {
                       <th className="py-3 px-4">Rate</th>
                       <th className="py-3 px-4">Electricity Amount</th>
                       <th className="py-3 px-4 text-right">Reading Date</th>
+                      <th className="py-3 px-4 text-center">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -530,6 +601,39 @@ export default function ElectricityPage() {
                             day: '2-digit',
                             month: 'short',
                           })}
+                        </td>
+
+                        <td className="py-3 px-4 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            {r.status === 'REJECTED' ? (
+                              <span
+                                className="px-2 py-0.5 text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 rounded-lg"
+                                title={r.rejectionReason || 'Rejected'}
+                              >
+                                Rejected
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => {
+                                  if (r.renterId?._id) {
+                                    setSelectedRenterForModal(r.renterId._id);
+                                  }
+                                  setQuickMeterOpen(true);
+                                }}
+                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                                title="Update Reading"
+                              >
+                                <Zap className="w-4 h-4 fill-blue-500" />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDeleteReading(r._id)}
+                              className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition"
+                              title="Delete Record"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
